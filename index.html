@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#1d242d" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <title>Uploader — Telegram</title>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="css.css?v=20250824-6" />
+  <link rel="icon" type="image/svg+xml" href="/uploader/favicon.svg" />
+  <link rel="icon" type="image/png" href="/uploader/favicon-32.png" sizes="32x32" />
+  <link rel="icon" type="image/png" href="/uploader/favicon-16.png" sizes="16x16" />
+  </head>
+  <body>
+    <!-- external SVG background: full-viewport hex lattice + drifting glows -->
+    <div id="bg-svg-wrap" style="position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden;">
+      <object data="bg-hex.svg" type="image/svg+xml" aria-hidden="true" style="display:block;width:100%;height:100%;"></object>
+    </div>
+    <header class="site-header files-panel-like">
+      <div class="site-header-inner">
+        <div class="brand">
+          <div class="logo">TU</div>
+          <div class="brand-info">
+            <div class="brand-title">Telegram Uploader</div>
+            <div class="brand-sub">Upload remote files to your Telegram account</div>
+          </div>
+        </div>
+        <div class="header-actions">
+          <div class="free-space small muted">Free: <span id="freeSpace">...</span></div>
+        </div>
+      </div>
+    </header>
+
+    <main class="app-layout">
+      <section class="upload-panel files-panel-like" id="uploadPanel">
+        <div class="upload-toolbar">
+          <div class="upload-title">
+            <span class="upload-title-icon"><span data-lucide="cloud-upload"></span></span>
+            <span class="upload-title-text">Upload to Telegram</span>
+          </div>
+          <div class="upload-toolbar-spacer"></div>
+        </div>
+  <form id="uploadForm" class="form" method="POST" autocomplete="off">
+        <div class="form-row">
+          <label class="field">
+            <span class="label">Upload cookies.txt for MeTube</span>
+            <input type="file" id="cookiesFile" accept=".txt" />
+          </label>
+          <button type="button" id="btnUploadCookies" class="btn secondary" style="margin-left:12px;align-self:flex-end;">Upload cookies.txt</button>
+        </div>
+          <div class="form-row">
+            <label class="field">
+              <span class="label">Username</span>
+              <input
+                type="text"
+                name="username"
+                placeholder="Telegram username"
+                required
+                autocomplete="username"
+              />
+            </label>
+            <label class="field">
+              <span class="label">Password</span>
+              <input
+                type="password"
+                name="password"
+                placeholder="Telegram password"
+                required
+                autocomplete="current-password"
+              />
+            </label>
+          </div>
+          <label class="field full">
+            <span class="label">File URL(s)</span>
+            <textarea
+              name="fileUrls"
+              class="textarea"
+              placeholder="Paste one URL per line"
+              required
+            ></textarea>
+          </label>
+          <div class="form-actions">
+            <button type="button" id="btnUpload" class="btn primary">
+              <span data-lucide="cloud-upload"></span>
+              Upload
+            </button>
+            <button type="button" id="btnDownload" class="btn secondary">
+              <span data-lucide="download"></span>
+              Download
+            </button>
+          </div>
+        </form>
+        <div class="jobs">
+          <div class="jobs-header">Active Jobs</div>
+          <div id="jobsList" class="jobs-list"></div>
+        </div>
+      </section>
+
+      <aside class="files-panel" id="filesPanel">
+        <div class="files-toolbar">
+          <div class="files-title">
+            <span class="files-title-icon"><span data-lucide="folder"></span></span>
+            <span class="files-title-text">Saved Files</span>
+          </div>
+          <div class="files-actions" id="filesActions">
+            <input id="dlSearch" class="files-search" placeholder="Search" />
+            <button id="expandAll" class="icon-mini" title="Expand all folders" aria-label="Expand all folders"><span data-lucide="folder-plus"></span></button>
+            <button id="collapseAll" class="icon-mini" title="Collapse all folders" aria-label="Collapse all folders"><span data-lucide="folder-minus"></span></button>
+            <button id="refreshDl" class="icon-mini" title="Refresh"><span data-lucide="refresh-cw"></span></button>
+          </div>
+        </div>
+        <div class="files-tree-wrapper">
+          <div class="files-list tree-mode" id="dlList"></div>
+        </div>
+        <div class="files-statusbar">
+          <div id="dlTotal" class="files-total"></div>
+        </div>
+      </aside>
+    </main>
+
+    <!-- modal -->
+    <div id="modal" class="modal" aria-hidden="true">
+      <div class="modal-inner">
+        <div id="modalText" class="modal-text">Are you sure?</div>
+        <div class="modal-actions">
+          <button id="modalCancel" class="btn ghost">Cancel</button>
+          <button id="modalConfirm" class="btn danger">Delete</button>
+        </div>
+      </div>
+    </div>
+
+  <!-- toast notifications -->
+  <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+
+    <!-- lucide icons (rendered to SVG when available) -->
+    <script src="https://cdn.jsdelivr.net/npm/lucide@0.395.0/dist/umd/lucide.min.js"></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', () => {
+        if (window.lucide) lucide.createIcons();
+      });
+    </script>
+    <script>
+      // emoji fallback if lucide doesn't render
+      function applyIconFallback() {
+        document.querySelectorAll('span[data-lucide]').forEach((s) => {
+          if (s.querySelector('svg')) return;
+          if (s.classList.contains('fallback-emoji')) return;
+          const name = s.getAttribute('data-lucide') || '';
+          const map = {
+            'cloud-upload': '☁️',
+            download: '⬇️',
+            'refresh-cw': '🔁',
+            x: '✖️',
+            'trash-2': '🗑️',
+            'edit-3': '✏️',
+            folder: '📁',
+            file: '📄'
+          };
+            s.textContent = map[name] || '•';
+            s.classList.add('fallback-emoji');
+        });
+      }
+      document.addEventListener('DOMContentLoaded', applyIconFallback);
+      setTimeout(applyIconFallback, 400);
+    </script>
+  <script type="module" src="js/main.js?v=20250902-1" defer></script>
+  </body>
+</html>

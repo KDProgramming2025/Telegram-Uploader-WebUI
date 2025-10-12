@@ -1,0 +1,14 @@
+[Unit]
+Description=Telegram Uploader Server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/uploader/server
+ExecStart=/usr/bin/node /var/www/uploader/server/dist/index.js
+Restart=always
+User=root
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
