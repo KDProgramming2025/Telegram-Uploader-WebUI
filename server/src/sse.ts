@@ -21,9 +21,11 @@ export function throttledProgress(jobId: string, kind: 'download'|'upload', data
   let changed = false;
   if (kind === 'download') {
     if (data.percent != null && data.percent !== rec.percent) changed = true;
+    if (data.received != null && data.received !== rec.recv) changed = true;
     if (rec.t === 0) changed = true;
   } else if (kind === 'upload') {
     if (data.percent != null && data.percent !== rec.percent) changed = true;
+    if (data.received != null && data.received !== rec.recv) changed = true;
     if (rec.t === 0) changed = true;
   }
   if (!changed && now - rec.t < minInterval) return;

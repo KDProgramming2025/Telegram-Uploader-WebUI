@@ -9,6 +9,8 @@ export type Job = {
   message?: string;
   tmpPath?: string;
   createdAt: number;
+  // optional user-requested base name (without extension)
+  requestedName?: string;
   // allow extra fields like type
   [k: string]: any;
 };

@@ -147,16 +147,22 @@ export function initJobs(options = {}) {
     if (!form) return;
     const username = form.username.value;
     const password = form.password.value;
+    const fileName = (form.fileName && form.fileName.value || '').trim();
     const lines = (form.fileUrls.value || '')
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean);
+    const total = lines.length;
 
-    for (const fileUrl of lines) {
+    for (let idx = 0; idx < lines.length; idx++) {
+      const fileUrl = lines[idx];
+      const numberedName = fileName
+        ? (total > 1 ? `${fileName} (${idx + 1})` : fileName)
+        : undefined;
       const res = await fetch('/uploader/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password, fileUrl, saveToDl })
+        body: JSON.stringify({ username, password, fileUrl, saveToDl, fileName: numberedName })
       });
       if (!res.ok) {
         const text = await res.text();

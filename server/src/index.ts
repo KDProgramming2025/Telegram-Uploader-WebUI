@@ -45,15 +45,17 @@ app.use((req, res, next) => {
 loadJobsFromDisk();
 
 // Jobs endpoints
-app.get('/jobs', (req, res) => {
+function jobsListHandler(req: express.Request, res: express.Response) {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
   const list = Array.from(jobs.values()).sort((a,b) => b.createdAt - a.createdAt);
   res.json(list);
-});
+}
+app.get('/jobs', jobsListHandler);
+app.get('/uploader/jobs', jobsListHandler);
 
-app.delete('/jobs/:id', (req, res) => {
+function jobsDeleteHandler(req: express.Request, res: express.Response) {
   const { id } = req.params;
   const job = jobs.get(id);
   if (!job) return res.status(404).send('no such job');
@@ -78,7 +80,9 @@ app.delete('/jobs/:id', (req, res) => {
   saveJobsToDisk();
   sseClients.delete(id);
   res.send('deleted');
-});
+}
+app.delete('/jobs/:id', jobsDeleteHandler);
+app.delete('/uploader/jobs/:id', jobsDeleteHandler);
 
 // Register remaining route modules
 registerSystemRoutes(app);
