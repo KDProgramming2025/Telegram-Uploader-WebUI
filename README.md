@@ -1,0 +1,228 @@
+# Telegram Uploader WebUI
+
+A simple web interface to download files from links or your server and upload them to your Telegram account. Built for everyday use, no developer knowledge required.
+
+- Upload files to Telegram (Saved Messages, groups, or channels)
+- Paste links (including .m3u8 streaming links) and let the server fetch them
+- Save downloads locally and browse them in a tree view
+- Upload any saved file or folder to Telegram (folders enqueue all files)
+- See live progress and status with a clear percent indicator
+
+This app runs on your own server and connects to your Telegram account using your Telegram API credentials.
+
+---
+
+## 1) What you need
+
+- A Linux server (or a computer) with:
+  - Node.js 18+ and npm
+  - FFmpeg (ffmpeg and ffprobe)
+  - systemd (optional but recommended for auto-run at boot)
+- Telegram API credentials (API_ID and API_HASH) from https://my.telegram.org
+- Your numeric Telegram ID (TARGET_CHATID), or the target chat/channel/group ID
+
+Optional but useful:
+- A reverse proxy (e.g., Nginx) if you want HTTPS or a custom domain
+
+---
+
+## 2) Install
+
+Clone the repository and install the server dependencies.
+
+```bash
+# On your server
+cd /var/www
+git clone https://github.com/KDProgramming2025/Telegram-Uploader-WebUI.git uploader
+cd uploader/server
+npm install
+npm run build
+```
+
+Create a downloads folder if it doesn’t exist:
+
+```bash
+sudo mkdir -p /var/www/dl
+sudo chown -R $(whoami):$(whoami) /var/www/dl
+```
+
+---
+
+## 3) Configure
+
+Copy the example environment file and fill in your values.
+
+```bash
+cd /var/www/uploader
+cp .env.example .env
+```
+
+Open `.env` and set:
+
+- `PORT`: Web UI port (default 11000)
+- `API_ID` and `API_HASH`: from https://my.telegram.org
+- `TARGET_CHATID`: numeric Telegram ID of the destination (for Saved Messages, use your user ID)
+- `UI_USERNAME` and `UI_PASSWORD`: the login you’ll enter in the web UI form
+
+Security notes:
+- `.env` is not committed to Git.
+- `session.txt` (Telegram login session) is stored next to the app and is also ignored by Git.
+
+---
+
+## 4) Run the server
+
+Quick run (foreground):
+
+```bash
+cd /var/www/uploader/server
+npm run build
+npm start
+```
+
+Systemd service (background):
+
+```bash
+sudo cp /var/www/uploader/server/uploader-server.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable uploader-server
+sudo systemctl start uploader-server
+sudo systemctl status uploader-server --no-pager
+```
+
+Open the Web UI at:
+
+```
+http://YOUR_SERVER_IP:11000
+```
+
+---
+
+## 5) First-time Telegram login
+
+You must sign in your Telegram account once so the server can upload on your behalf. A session will be saved to `session.txt`.
+
+There is no separate UI form for this; use two simple API calls (you can use curl from your laptop or the server):
+
+1) Ask Telegram to send you a login code:
+
+```bash
+curl -X POST http://YOUR_SERVER_IP:11000/auth/start \
+  -H 'Content-Type: application/json' \
+  -d '{"phone":"+1234567890"}'
+```
+
+2) Verify using the code you received in Telegram. If you have 2FA password enabled, include it as well.
+
+```bash
+# Without 2FA password
+curl -X POST http://YOUR_SERVER_IP:11000/auth/verify \
+  -H 'Content-Type: application/json' \
+  -d '{"code":"12345"}'
+
+# With 2FA password
+curl -X POST http://YOUR_SERVER_IP:11000/auth/verify \
+  -H 'Content-Type: application/json' \
+  -d '{"code":"12345","password":"YOUR_2FA_PASSWORD"}'
+```
+
+If both calls return `ok`, your session is saved and you’re ready to upload.
+
+Tip: if you ever rotate devices or worry a session was exposed, revoke it in the Telegram app (Settings → Devices → Terminate Other Sessions) and then run the login steps again.
+
+---
+
+## 6) Using the Web UI
+
+Open the site in your browser (`http://YOUR_SERVER_IP:11000`).
+
+- Enter your UI Username/Password (from `.env`) in the form at the top.
+- Paste one or more file URLs (one per line).
+- Optional: set a base File name (the original extension is kept automatically).
+- Choose:
+  - Upload → fetch the file and upload it to Telegram
+  - Download → fetch and save it to the server (it appears under Saved Files)
+
+Progress & Jobs
+- You’ll see each job with status and a numeric percent.
+- Remove removes jobs from the list. If a job is active, Remove cancels it and cleans up.
+- “Remove All” appears only when there are jobs; it removes everything (active jobs are cancelled).
+
+Saved Files panel
+- Browse files in `/var/www/dl`.
+- Click a file name to open/download it.
+- Rename or Delete files/folders.
+- “Upload” (arrow icon) on any file/folder enqueues upload(s) to Telegram. Folders add all files inside (alphabetically) and run sequentially.
+
+Cookie upload for MeTube (optional)
+- If you run MeTube on your server, you can upload `cookies.txt` and trigger a MeTube restart from the UI’s “Upload cookies.txt” button (it writes to `/opt/metube/cookies.txt`).
+
+---
+
+## 7) Special link support
+
+- HLS streaming links (`.m3u8`) are supported. The server remuxes them into a single file (MP4/WEBM/TS chosen based on codecs) without re-encoding.
+- MKV files are intentionally uploaded as documents (files) on Telegram, not as videos, for best compatibility.
+
+---
+
+## 8) Where files are stored
+
+- Downloads folder: `/var/www/dl` (served at `/dl/<filename>`). You can change ownership/permissions if needed.
+- Temporary files for in-progress uploads are stored under `/var/www/uploader/server/tmp`.
+- Job state is persisted in `jobs.json` so the list can survive restarts (this file is not committed to Git by default).
+
+---
+
+## 9) Security & privacy
+
+- Keep `.env` and `session.txt` private. They are ignored by Git and should never be uploaded publicly.
+- If you accidentally exposed `session.txt`, immediately revoke sessions in the Telegram app and re-login (see above).
+- UI requests require your UI username/password on each operation to prevent accidental or unauthorized actions.
+
+---
+
+## 10) Troubleshooting
+
+- “Unauthorized”: The UI username/password in the form must match `UI_USERNAME`/`UI_PASSWORD` in `.env`.
+- “User client not connected”: You haven’t logged in yet (see First-time Telegram login).
+- Progress doesn’t move: Large files can take time; the app uses live updates. If many jobs are queued, uploads run one-by-one.
+- ffmpeg/ffprobe not found: Install `ffmpeg` on your server.
+- Upload order: Folder uploads enqueue files alphabetically and process them sequentially.
+- Can’t abort mid-upload: Telegram uploads are best-effort cancellable; Remove will stop queued steps and prevent follow-ups.
+
+---
+
+## 11) Updating
+
+```bash
+cd /var/www/uploader
+git pull
+cd server
+npm install
+npm run build
+sudo systemctl restart uploader-server
+```
+
+---
+
+## 12) FAQ
+
+- Can I upload to a specific chat or channel?
+  - Yes. Set `TARGET_CHATID` to the numeric ID of your Saved Messages, chat, group, or channel. For channels, you may need to add the account as admin.
+
+- Does it re-encode videos?
+  - No. For `.m3u8` it remuxes (copy) into a single file; for other links it downloads as-is.
+
+- Why does MKV upload as a file, not a video?
+  - Telegram clients handle MKV variably; uploading as a document ensures compatibility.
+
+---
+
+Happy uploading!
+
+```text
+Project root: /var/www/uploader
+Web UI:       http://YOUR_SERVER_IP:11000
+Downloads:    /var/www/dl
+```
