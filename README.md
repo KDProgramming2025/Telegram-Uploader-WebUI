@@ -259,23 +259,17 @@ There is no separate UI form for this; use two simple API calls (you can use cur
 1) Ask Telegram to send you a login code:
 
 ```bash
-curl -X POST http://YOUR_SERVER_IP:11000/auth/start \
-  -H 'Content-Type: application/json' \
-  -d '{"phone":"+1234567890"}'
+curl -X POST http://YOUR_SERVER_IP:11000/auth/start -H 'Content-Type: application/json' -d '{"phone":"+1234567890"}'
 ```
 
 2) Verify using the code you received in Telegram. If you have 2FA password enabled, include it as well.
 
 ```bash
 # Without 2FA password
-curl -X POST http://YOUR_SERVER_IP:11000/auth/verify \
-  -H 'Content-Type: application/json' \
-  -d '{"code":"12345"}'
+curl -X POST http://YOUR_SERVER_IP:11000/auth/verify -H 'Content-Type: application/json' -d '{"code":"12345"}'
 
 # With 2FA password
-curl -X POST http://YOUR_SERVER_IP:11000/auth/verify \
-  -H 'Content-Type: application/json' \
-  -d '{"code":"12345","password":"YOUR_2FA_PASSWORD"}'
+curl -X POST http://YOUR_SERVER_IP:11000/auth/verify -H 'Content-Type: application/json' -d '{"code":"12345","password":"YOUR_2FA_PASSWORD"}'
 ```
 
 If both calls return `ok`, your session is saved and you’re ready to upload.
