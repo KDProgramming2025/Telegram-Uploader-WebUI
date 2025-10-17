@@ -96,6 +96,158 @@ Open the Web UI at:
 http://YOUR_SERVER_IP:11000
 ```
 
+If you put the app behind a reverse proxy (recommended), visit the proxied path you configure instead (for example: `https://your-domain/uploader/`). See the next section for Nginx/Apache examples.
+
+---
+
+### 4.1) Reverse proxy (Nginx/Apache) and static /dl
+
+Below are minimal, production-friendly examples to:
+- Proxy the app under a path prefix, e.g. `/uploader/`
+- Serve the Saved Files directory directly from your web server at `/dl/`
+
+The examples assume default HTTP/HTTPS ports (80/443). Adjust as needed.
+
+Note about SSE (live updates): This app uses Server-Sent Events. The Nginx/Apache examples include settings to avoid buffering so progress updates stream correctly.
+
+#### Nginx
+
+1) Create a snippet for the reverse proxy (optional but tidy):
+
+File: `/etc/nginx/snippets/uploader_proxy.conf`
+
+```
+# Proxy the app at /uploader/ to the Node server on 127.0.0.1:11000
+location /uploader/ {
+  proxy_pass          http://127.0.0.1:11000/;  # trailing slash strips /uploader/
+  proxy_http_version  1.1;
+  proxy_set_header    Host                $host;
+  proxy_set_header    X-Real-IP           $remote_addr;
+  proxy_set_header    X-Forwarded-For     $proxy_add_x_forwarded_for;
+  proxy_set_header    X-Forwarded-Proto   $scheme;
+  proxy_set_header    Connection          "";   # keep-alive without hop-by-hop header
+
+  # SSE: don't buffer, allow long-lived connections
+  proxy_buffering     off;
+  proxy_read_timeout  1h;
+  proxy_send_timeout  1h;
+}
+
+# Serve Saved Files directly from disk at /dl/
+location /dl/ {
+  alias /var/www/dl/;           # note trailing slashes on both path and alias
+  autoindex on;                  # optional: list files
+  # You can add caching headers if desired
+  # add_header Cache-Control "public, max-age=60";
+}
+```
+
+2) Include the snippet in your server block. Example with default ports and optional TLS:
+
+```
+server {
+  listen 80;
+  server_name your-domain.com;
+
+  include /etc/nginx/snippets/uploader_proxy.conf;
+}
+
+server {
+  listen 443 ssl http2;
+  server_name your-domain.com;
+  ssl_certificate     /path/to/fullchain.pem;
+  ssl_certificate_key /path/to/privkey.pem;
+
+  include /etc/nginx/snippets/uploader_proxy.conf;
+}
+```
+
+3) Test and reload Nginx:
+
+```
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+Visit the app at: `https://your-domain.com/uploader/`
+
+Your Saved Files will be available at: `https://your-domain.com/dl/`
+
+Important: Keep the trailing slash on both `location /uploader/` and `proxy_pass .../` so Nginx rewrites `/uploader/...` to `/...` for the backend.
+
+#### Apache (apache2)
+
+1) Enable necessary modules:
+
+```
+sudo a2enmod proxy proxy_http headers ssl
+sudo systemctl reload apache2
+```
+
+2) Add to your site’s VirtualHost. For HTTP:
+
+File: e.g. `/etc/apache2/sites-available/your-domain.conf`
+
+```
+<VirtualHost *:80>
+  ServerName your-domain.com
+
+  # Reverse proxy for the app under /uploader/
+  ProxyPreserveHost On
+  RequestHeader set X-Forwarded-Proto expr=%{REQUEST_SCHEME}
+  ProxyPass        /uploader/ http://127.0.0.1:11000/ retry=0 flushpackets=on
+  ProxyPassReverse /uploader/ http://127.0.0.1:11000/
+
+  # Serve Saved Files at /dl/
+  Alias /dl/ "/var/www/dl/"
+  <Directory "/var/www/dl/">
+    Options +Indexes +FollowSymLinks
+    AllowOverride None
+    Require all granted
+  </Directory>
+</VirtualHost>
+```
+
+For HTTPS (replace cert paths with yours):
+
+```
+<IfModule mod_ssl.c>
+<VirtualHost *:443>
+  ServerName your-domain.com
+  SSLEngine on
+  SSLCertificateFile      /etc/letsencrypt/live/your-domain.com/fullchain.pem
+  SSLCertificateKeyFile   /etc/letsencrypt/live/your-domain.com/privkey.pem
+
+  ProxyPreserveHost On
+  RequestHeader set X-Forwarded-Proto "https"
+  ProxyPass        /uploader/ http://127.0.0.1:11000/ retry=0 flushpackets=on
+  ProxyPassReverse /uploader/ http://127.0.0.1:11000/
+
+  Alias /dl/ "/var/www/dl/"
+  <Directory "/var/www/dl/">
+    Options +Indexes +FollowSymLinks
+    AllowOverride None
+    Require all granted
+  </Directory>
+</VirtualHost>
+</IfModule>
+```
+
+Then enable the site and reload Apache:
+
+```
+sudo a2ensite your-domain
+sudo systemctl reload apache2
+```
+
+Visit the app at: `https://your-domain.com/uploader/`
+
+Your Saved Files will be available at: `https://your-domain.com/dl/`
+
+Notes:
+- The trailing slashes on `ProxyPass /uploader/ http://127.0.0.1:11000/` ensure the `/uploader/` prefix is stripped before sending to the Node server.
+- `flushpackets=on` helps stream SSE events without buffering.
+- If you use a different path prefix, just substitute it consistently in both the proxy and your browser URL.
+
 ---
 
 ## 5) First-time Telegram login
