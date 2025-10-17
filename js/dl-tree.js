@@ -160,6 +160,44 @@ export function initDownloadTree() {
     };
     actions.appendChild(deleteBtn);
 
+    // Upload to Telegram button
+    const uploadBtn = document.createElement('button');
+    uploadBtn.className = 'icon-btn primary';
+    uploadBtn.title = 'Upload to Telegram';
+    uploadBtn.innerHTML = '<span data-lucide="upload"></span>';
+    uploadBtn.onclick = async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const form = document.getElementById('uploadForm');
+      if (!form) return toast('Form not found', 'error');
+      const username = form.username.value;
+      const password = form.password.value;
+      if (!username || !password) {
+        toast('Enter username/password first', 'error');
+        return;
+      }
+      try {
+        let res = await fetch('/uploader/dl/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, path: node.path })
+        });
+        if (!res.ok) {
+          const msg = await res.text();
+          toast('Enqueue failed: ' + msg, 'error');
+          return;
+        }
+        const data = await res.json();
+        if (window.uploaderAddJobs && data && Array.isArray(data.jobs)) {
+          window.uploaderAddJobs(data.jobs);
+        }
+        toast(`Enqueued ${data.total || (data.jobs ? data.jobs.length : 0)} file(s)`, 'success');
+      } catch (err) {
+        toast('Enqueue error: ' + err, 'error');
+      }
+    };
+    actions.appendChild(uploadBtn);
+
     if (node.isDir) {
       const toggle = document.createElement('button');
       toggle.className = 'toggle';

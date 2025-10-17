@@ -1,3 +1,17 @@
+.job-progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.job-progress-wrap .job-progress {
+  flex: 1 1 auto;
+}
+.job-progress-wrap .job-percent {
+  width: 3.5em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted, #777);
+}
 .files-list.win-tree .dl-item.anim-enter{animation:treeRowIn .38s cubic-bezier(.3,.8,.3,1) both}
 .files-list.win-tree .dl-item.anim-enter .conn-dot{animation:dotPop .45s .15s cubic-bezier(.25,1.4,.3,1) both}
 .files-list.win-tree .dl-item .toggle{transition:transform .32s cubic-bezier(.4,1.2,.4,1)}

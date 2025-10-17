@@ -1,6 +1,7 @@
 import type express from 'express';
 
 export const sseClients: Map<string, express.Response> = new Map();
+const MAX_SSE_CLIENTS = 200;
 
 export function sendSse(jobId: string, event: string, payload: any) {
   const res = sseClients.get(jobId);
@@ -9,7 +10,8 @@ export function sendSse(jobId: string, event: string, payload: any) {
     res.write(`event: ${event}\n`);
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
   } catch (e) {
-    // ignore write errors
+    try { res.end(); } catch {}
+    sseClients.delete(jobId);
   }
 }
 

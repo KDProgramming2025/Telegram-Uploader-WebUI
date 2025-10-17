@@ -43,3 +43,7 @@ export function loadJobsFromDisk() {
     console.error('loadJobsFromDisk error', e);
   }
 }
+
+export function hasJob(id: string) {
+  return jobs.has(id);
+}

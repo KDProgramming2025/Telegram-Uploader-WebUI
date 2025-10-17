@@ -105,8 +105,13 @@
             </button>
           </div>
         </form>
-        <div class="jobs">
-          <div class="jobs-header">Active Jobs</div>
+          <div class="jobs">
+          <div class="jobs-header">
+            <span>Active Jobs</span>
+            <span class="jobs-actions" style="margin-left:auto; display:flex; gap:8px;">
+              <button type="button" id="btnRemoveAll" class="btn danger" title="Remove all jobs">Remove All</button>
+            </span>
+          </div>
           <div id="jobsList" class="jobs-list"></div>
         </div>
       </section>

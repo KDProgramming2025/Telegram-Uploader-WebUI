@@ -1,1 +1,10 @@
-[]
+[
+  {
+    "id": "job_1760718818011_gsokc4",
+    "fileUrl": "local:SPY x FAMILY/Season 1/SPY x FAMILY - S01E01.mkv",
+    "status": "queued",
+    "createdAt": 1760718818011,
+    "tmpPath": "/var/www/dl/SPY x FAMILY/Season 1/SPY x FAMILY - S01E01.mkv",
+    "type": "upload"
+  }
+]

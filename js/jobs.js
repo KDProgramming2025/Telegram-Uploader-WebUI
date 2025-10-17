@@ -3,7 +3,20 @@ import { toast, refreshIcons } from './utils.js';
 export function initJobs(options = {}) {
   const { onDownloadsChanged = () => {} } = options;
   const jobsById = {};
+  const sseAttached = new Set();
   let renderScheduled = false;
+  // Track current DOM mapping and job ids to avoid full redraws
+  const domById = new Map();
+  let lastSortedIds = [];
+  let lastSortedKey = '';
+
+  function sortKey(job) {
+    const nameFromTmp = (job.tmpPath && job.tmpPath.split('/').pop()) || '';
+    const urlPath = (job.fileUrl || '').split('?')[0];
+    const nameFromUrl = (urlPath && urlPath.split('/').pop()) || '';
+    const key = nameFromTmp || nameFromUrl || job.fileUrl || '';
+    return String(key).toLowerCase();
+  }
 
   function scheduleRenderJobs() {
     if (renderScheduled) return;
@@ -17,107 +30,50 @@ export function initJobs(options = {}) {
   function renderJobs() {
     const list = document.getElementById('jobsList');
     if (!list) return;
-    list.innerHTML = '';
-    Object.values(jobsById).forEach((job) => {
-      const el = document.createElement('div');
-      el.className = 'job panel';
-      el.classList.add('enter');
+    // Compute stable alphabetical order
+    const ids = Object.keys(jobsById);
+    const sortedIds = ids.sort((a, b) => sortKey(jobsById[a]).localeCompare(sortKey(jobsById[b]), undefined, { sensitivity: 'base' }));
+    // Toggle Remove All visibility based on count
+    const btnRemoveAll = document.getElementById('btnRemoveAll');
+    if (btnRemoveAll) btnRemoveAll.style.display = sortedIds.length > 0 ? '' : 'none';
 
-      let jobType = job.type || 'upload';
-      if (!job.type) {
-        if (
-          job.publicUrl ||
-          (job.tmpPath && job.tmpPath.startsWith('/var/www/dl')) ||
-          job.status === 'saved'
-        ) {
-          jobType = 'download';
-        }
-      }
-      el.classList.add(jobType);
+    const sortedKey = sortedIds.join('|');
+    const setChanged = sortedIds.length !== lastSortedIds.length || sortedIds.some((id) => !domById.has(id));
 
-      let savedLinkUrl = null;
-      let savedContent = '';
-      if (job.tmpPath && job.tmpPath.startsWith('/var/www/dl')) {
-        const fileName = job.tmpPath.split('/').pop();
-        savedLinkUrl = `${window.location.origin}/dl/${encodeURIComponent(fileName)}`;
-        savedContent = `Saved: <a href="${savedLinkUrl}" target="_blank">${savedLinkUrl}</a>`;
-      } else if (job.tmpPath) {
-        savedContent = `Saved: ${job.tmpPath}`;
-      }
+    if (setChanged) {
+      // Add/remove happened: rebuild once in correct alphabetical order
+      list.innerHTML = '';
+      domById.clear();
+      sortedIds.forEach((id) => {
+        const job = jobsById[id];
+        const el = createJobNode(job);
+        domById.set(id, el);
+        list.appendChild(el);
+      });
+      lastSortedIds = sortedIds.slice();
+      lastSortedKey = sortedKey;
+      refreshIcons();
+      return;
+    }
 
-      const publicUrl = job.publicUrl || null;
-      const publicContent = publicUrl ? `Link: <a href="${publicUrl}" target="_blank">${publicUrl}</a>` : '';
-      const badge =
-        jobType === 'download'
-          ? `<span class="badge download">Download</span>`
-          : `<span class="badge upload">Upload</span>`;
+    // If only the order changed, reorder nodes without recreating
+    if (sortedKey !== lastSortedKey) {
+      sortedIds.forEach((id) => {
+        const node = domById.get(id);
+        if (node && node.parentElement === list) list.appendChild(node);
+      });
+      lastSortedIds = sortedIds.slice();
+      lastSortedKey = sortedKey;
+    }
 
-      const header = document.createElement('div');
-      header.className = 'job-header';
-      const url = document.createElement('strong');
-      url.className = 'url';
-      url.title = job.fileUrl;
-      url.textContent = job.fileUrl;
-      header.appendChild(url);
-      const badgeNode = document.createElement('span');
-      badgeNode.innerHTML = badge;
-      header.appendChild(badgeNode);
-
-      const statusWrap = document.createElement('div');
-      statusWrap.className = 'meta';
-      statusWrap.innerHTML = `Status: <span class="status">${job.status}</span>`;
-      const prog = document.createElement('progress');
-      prog.value = job.percent || 0;
-      prog.max = 100;
-      prog.className = 'job-progress';
-
-      el.appendChild(header);
-      el.appendChild(statusWrap);
-      el.appendChild(prog);
-
-      if (savedContent) {
-        const saved = document.createElement('div');
-        saved.className = 'meta';
-        saved.innerHTML = savedContent;
-        el.appendChild(saved);
-      }
-      if (publicContent && publicUrl !== savedLinkUrl) {
-        const pub = document.createElement('div');
-        pub.className = 'meta';
-        pub.innerHTML = publicContent;
-        el.appendChild(pub);
-      }
-
-      const actions = document.createElement('div');
-      actions.className = 'job-actions';
-      const delBtn = document.createElement('button');
-      delBtn.className = 'btn del danger';
-      delBtn.setAttribute('data-id', job.id);
-      delBtn.textContent = 'Remove';
-      actions.appendChild(delBtn);
-      el.appendChild(actions);
-
-      list.appendChild(el);
+    // Update existing nodes in place
+    sortedIds.forEach((id) => {
+      const job = jobsById[id];
+      const el = domById.get(id);
+      if (!el) return;
+      updateJobNode(el, job);
     });
-
-    document.querySelectorAll('#jobsList .del').forEach((btn) => {
-      btn.onclick = async (event) => {
-        const id = event.target.getAttribute('data-id');
-        await fetch(`/uploader/jobs/${id}`, { method: 'DELETE' });
-        delete jobsById[id];
-        const node = document.querySelector(`#jobsList .del[data-id="${id}"]`);
-        if (node) {
-          const parent = node.closest('.job');
-          if (parent) {
-            parent.classList.add('exit');
-            setTimeout(() => renderJobs(), 300);
-            return;
-          }
-        }
-        renderJobs();
-      };
-    });
-    refreshIcons();
+    // No icon refresh needed if not adding new icons
   }
 
   async function refreshJobs() {
@@ -126,6 +82,10 @@ export function initJobs(options = {}) {
     list.forEach((job) => {
       jobsById[job.id] = job;
       if (!jobsById[job.id].type) jobsById[job.id].type = job.type || 'upload';
+      // Attach SSE only for truly active jobs after refresh
+      const st = (jobsById[job.id].status || '').toLowerCase();
+      const active = st === 'downloading' || st === 'uploading';
+      if (active && !sseAttached.has(job.id)) attachSse(job.id);
     });
     scheduleRenderJobs();
   }
@@ -178,13 +138,146 @@ export function initJobs(options = {}) {
         type: job.type || 'upload'
       };
       scheduleRenderJobs();
-      attachSse(job.jobId);
     }
     refreshJobs();
   }
 
+  function createJobNode(job) {
+    const el = document.createElement('div');
+    el.className = 'job panel';
+    el.dataset.jobId = job.id;
+    el.classList.add('enter');
+
+    const header = document.createElement('div');
+    header.className = 'job-header';
+    const url = document.createElement('strong');
+    url.className = 'url';
+    url.title = job.fileUrl;
+    url.textContent = job.fileUrl;
+    header.appendChild(url);
+    const badgeNode = document.createElement('span');
+    badgeNode.className = 'badge';
+    header.appendChild(badgeNode);
+
+    const statusWrap = document.createElement('div');
+    statusWrap.className = 'meta';
+    const statusSpan = document.createElement('span');
+    statusSpan.className = 'status';
+    statusWrap.innerHTML = 'Status: ';
+    statusWrap.appendChild(statusSpan);
+
+    const progWrap = document.createElement('div');
+    progWrap.className = 'job-progress-wrap';
+    const prog = document.createElement('progress');
+    prog.max = 100;
+    prog.className = 'job-progress';
+    const pct = document.createElement('span');
+    pct.className = 'job-percent';
+    progWrap.appendChild(prog);
+    progWrap.appendChild(pct);
+
+    const savedMeta = document.createElement('div');
+    savedMeta.className = 'meta saved-meta';
+    savedMeta.style.display = 'none';
+    const publicMeta = document.createElement('div');
+    publicMeta.className = 'meta public-meta';
+    publicMeta.style.display = 'none';
+
+    const actions = document.createElement('div');
+    actions.className = 'job-actions';
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn del danger';
+    delBtn.setAttribute('data-id', job.id);
+    delBtn.textContent = 'Remove';
+    delBtn.onclick = async (event) => {
+      const id = event.target.getAttribute('data-id');
+      await fetch(`/uploader/jobs/${id}`, { method: 'DELETE' });
+      delete jobsById[id];
+      const node = domById.get(id);
+      if (node) {
+        node.classList.add('exit');
+        setTimeout(() => renderJobs(), 300);
+      } else {
+        renderJobs();
+      }
+    };
+    actions.appendChild(delBtn);
+
+    el.appendChild(header);
+    el.appendChild(statusWrap);
+    el.appendChild(progWrap);
+    el.appendChild(savedMeta);
+    el.appendChild(publicMeta);
+    el.appendChild(actions);
+
+    updateJobNode(el, job);
+    return el;
+  }
+
+  function updateJobNode(el, job) {
+    // type and classes
+    let jobType = job.type || 'upload';
+    if (!job.type) {
+      if (job.publicUrl || (job.tmpPath && job.tmpPath.startsWith('/var/www/dl')) || job.status === 'saved') {
+        jobType = 'download';
+      }
+    }
+    el.classList.toggle('upload', jobType === 'upload');
+    el.classList.toggle('download', jobType === 'download');
+
+    const badgeNode = el.querySelector('.badge');
+    if (badgeNode) {
+      badgeNode.className = `badge ${jobType}`;
+      badgeNode.textContent = jobType === 'download' ? 'Download' : 'Upload';
+    }
+
+    const statusSpan = el.querySelector('.status');
+    if (statusSpan) statusSpan.textContent = job.status;
+
+    const prog = el.querySelector('.job-progress');
+    const pct = el.querySelector('.job-percent');
+    const pctVal = Number.isFinite(job.percent) ? Math.max(0, Math.min(100, Math.round(job.percent))) : 0;
+    if (prog) prog.value = pctVal;
+    if (pct) pct.textContent = `${pctVal}%`;
+
+    // saved/public meta
+    const savedMeta = el.querySelector('.saved-meta');
+    const publicMeta = el.querySelector('.public-meta');
+    let savedLinkUrl = null;
+    let savedContent = '';
+    if (jobType === 'download' && job.tmpPath && job.tmpPath.startsWith('/var/www/dl')) {
+      const fileName = job.tmpPath.split('/').pop();
+      savedLinkUrl = `${window.location.origin}/dl/${encodeURIComponent(fileName)}`;
+      savedContent = `Saved: <a href="${savedLinkUrl}" target="_blank">${savedLinkUrl}</a>`;
+    } else if (jobType === 'download' && job.tmpPath) {
+      savedContent = `Saved: ${job.tmpPath}`;
+    }
+    if (savedMeta) {
+      if (savedContent) {
+        savedMeta.innerHTML = savedContent;
+        savedMeta.style.display = '';
+      } else {
+        savedMeta.style.display = 'none';
+        savedMeta.innerHTML = '';
+      }
+    }
+    const publicUrl = jobType === 'download' ? (job.publicUrl || null) : null;
+    const publicContent = publicUrl ? `Link: <a href="${publicUrl}" target="_blank">${publicUrl}</a>` : '';
+    if (publicMeta) {
+      if (publicContent && publicUrl !== savedLinkUrl) {
+        publicMeta.innerHTML = publicContent;
+        publicMeta.style.display = '';
+      } else {
+        publicMeta.style.display = 'none';
+        publicMeta.innerHTML = '';
+      }
+    }
+  }
+
   function attachSse(jobId) {
+    if (sseAttached.has(jobId)) return;
     const evt = new EventSource(`/uploader/events/${jobId}`);
+    sseAttached.add(jobId);
     evt.onmessage = () => {};
     evt.addEventListener('status', (event) => {
       const data = JSON.parse(event.data);
@@ -243,6 +336,7 @@ export function initJobs(options = {}) {
         scheduleRenderJobs();
       }
       evt.close();
+      sseAttached.delete(jobId);
     });
     evt.addEventListener('error', (event) => {
       const data = JSON.parse(event.data || '{}');
@@ -252,6 +346,7 @@ export function initJobs(options = {}) {
         scheduleRenderJobs();
       }
       evt.close();
+      sseAttached.delete(jobId);
     });
   }
 
@@ -259,6 +354,21 @@ export function initJobs(options = {}) {
   if (uploadBtn) uploadBtn.onclick = () => runAction(false);
   const downloadBtn = document.getElementById('btnDownload');
   if (downloadBtn) downloadBtn.onclick = () => runAction(true);
+
+  const btnRemoveAll = document.getElementById('btnRemoveAll');
+  if (btnRemoveAll) {
+    // Hide initially until we know there are jobs
+    btnRemoveAll.style.display = 'none';
+    btnRemoveAll.onclick = async () => {
+    // Remove all jobs from server and UI; server will cancel active if needed
+    const ids = Object.values(jobsById).map((j) => j.id);
+    for (const id of ids) {
+      try { await fetch(`/uploader/jobs/${id}`, { method: 'DELETE' }); } catch (_) {}
+      delete jobsById[id];
+    }
+    scheduleRenderJobs();
+  };
+  }
 
   const btnUploadCookies = document.getElementById('btnUploadCookies');
   if (btnUploadCookies) {
@@ -308,6 +418,25 @@ export function initJobs(options = {}) {
   refreshJobs();
   refreshFree();
   setInterval(refreshFree, 30_000);
+  // Poll to detect queued -> active transitions without opening SSE for every queued job
+  setInterval(refreshJobs, 5000);
+
+  // Expose a lightweight global helper so other modules (e.g., dl-tree) can add jobs and attach SSE streams
+  try {
+    window.uploaderAddJobs = (arr) => {
+      if (!Array.isArray(arr)) return;
+      arr.forEach((j) => {
+        const id = j && (j.jobId || j.id);
+        const fileUrl = (j && (j.fileUrl || j.path)) || '';
+        if (!id) return;
+        if (!jobsById[id]) {
+          jobsById[id] = { id, fileUrl, status: 'queued', percent: 0, type: 'upload' };
+        }
+        // Do not open SSE here; polling will attach when active
+      });
+      scheduleRenderJobs();
+    };
+  } catch (_) {}
 
   return {
     refreshJobs,

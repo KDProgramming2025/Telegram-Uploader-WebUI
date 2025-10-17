@@ -2,6 +2,10 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { UI_USERNAME, UI_PASSWORD } from '../config';
+import { jobs, Job, saveJobsToDisk } from '../jobs';
+import { enqueue, isCancelled } from '../queue';
+import { hasJob } from '../jobs';
+import { performTelegramUpload } from '../upload_telegram';
 
 function dlListHandler(req: express.Request, res: express.Response) {
   try {
@@ -284,4 +288,64 @@ export function registerDlRoutes(app: express.Express) {
       res.status(500).json({ error: String(e) });
     }
   });
+
+  // Enqueue upload(s) to Telegram for a file or folder under /var/www/dl
+  const uploadHandler = (req: express.Request, res: express.Response) => {
+    try {
+      const { username, password, path: relPath } = (req.body || {}) as any;
+      if (username !== UI_USERNAME || password !== UI_PASSWORD) {
+        return res.status(401).send('Unauthorized');
+      }
+      if (!relPath || typeof relPath !== 'string') return res.status(400).send('path required');
+      const DL_DIR = path.resolve('/var/www/dl');
+      const target = path.resolve(DL_DIR, relPath);
+      if (!(target === DL_DIR || target.startsWith(DL_DIR + path.sep))) {
+        return res.status(400).send('invalid path');
+      }
+      if (!fs.existsSync(target)) return res.status(404).send('not found');
+
+      // collect files
+      const files: string[] = [];
+      const walk = (p: string) => {
+        const st = fs.statSync(p);
+        if (st.isDirectory()) {
+          const list = fs.readdirSync(p).sort((a,b) => a.localeCompare(b));
+          for (const name of list) walk(path.join(p, name));
+        } else if (st.isFile()) {
+          files.push(p);
+        }
+      };
+      const st = fs.statSync(target);
+      if (st.isDirectory()) walk(target); else files.push(target);
+
+      // Alphabetical order for files, by path
+      files.sort((a,b) => a.localeCompare(b));
+
+      const created: any[] = [];
+      for (const abs of files) {
+        const jobId = `job_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+        const job: Job = {
+          id: jobId,
+          fileUrl: 'local:' + path.relative(DL_DIR, abs).replace(/\\/g,'/'),
+          status: 'queued',
+          createdAt: Date.now(),
+          tmpPath: abs
+        } as any;
+        (job as any).type = 'upload';
+        jobs.set(jobId, job);
+        saveJobsToDisk();
+        enqueue(async () => {
+          if (isCancelled(jobId) || !hasJob(jobId)) return; // skip if cancelled or removed before start
+          await performTelegramUpload(job, abs);
+        }, jobId);
+        created.push({ jobId, path: path.relative(DL_DIR, abs).replace(/\\/g,'/'), type: 'upload' });
+      }
+      res.json({ total: created.length, jobs: created });
+    } catch (e) {
+      console.error('dl upload enqueue error', e);
+      res.status(500).json({ error: String(e) });
+    }
+  };
+  app.post('/uploader/dl/upload', uploadHandler);
+  app.post('/dl/upload', uploadHandler);
 }

@@ -8,6 +8,9 @@ import { TARGET_CHATID, UI_USERNAME, UI_PASSWORD } from '../config';
 import { client, Api, isClientReady, setClientReady, hasSavedSession } from '../telegram';
 import { pipeline } from 'stream/promises';
 import { spawn } from 'child_process';
+import { enqueue, isCancelled } from '../queue';
+import { hasJob } from '../jobs';
+import { performTelegramUpload } from '../upload_telegram';
 
 export function registerUploadRoutes(app: express.Express) {
   const handler = async (req: express.Request, res: express.Response) => {
@@ -103,7 +106,8 @@ export function registerUploadRoutes(app: express.Express) {
       const tmpPath = path.join(tmpDir, fileName);
       try {
         const startTs = Date.now();
-        job.status = 'downloading'; jobs.set(jobId, job); sendSse(jobId, 'status', { status: job.status });
+        if (!hasJob(jobId)) return; // deleted before starting
+        job.status = 'downloading'; if (hasJob(jobId)) { jobs.set(jobId, job); sendSse(jobId, 'status', { status: job.status }); }
 
         if (isHls) {
           sendSse(jobId, 'downloadStart', { method: 'hls' });
@@ -205,12 +209,22 @@ export function registerUploadRoutes(app: express.Express) {
         const size = fs.statSync(tmpPath).size;
         const downloadMs = Math.max(1, endTs - startTs);
         const downloadBps = Math.round(size / (downloadMs / 1000));
-  // Ensure UI sees completion of download phase
+  // Ensure UI sees completion only if job still exists
+  if (!hasJob(jobId)) {
+    // If user deleted the job during download, attempt cleanup if outside DL
+    try {
+  const DL_DIR = path.resolve('/var/www/dl');
+  const resolved = path.resolve(tmpPath);
+  const inside = resolved === DL_DIR || resolved.startsWith(DL_DIR + path.sep);
+  if (!inside && fs.existsSync(resolved)) fs.unlinkSync(resolved);
+    } catch {}
+    return;
+  }
   throttledProgress(jobId, 'download', { percent: 100 });
-        job.status = 'downloaded'; job.tmpPath = tmpPath; job.percent = 100; jobs.set(jobId, job);
+    job.status = 'downloaded'; job.tmpPath = tmpPath; job.percent = 100; if (hasJob(jobId)) { jobs.set(jobId, job);
   sendSse(jobId, 'status', { status: job.status });
-        sendSse(jobId, 'downloadComplete', { path: tmpPath, size, downloadMs, downloadBps });
-        saveJobsToDisk();
+    sendSse(jobId, 'downloadComplete', { path: tmpPath, size, downloadMs, downloadBps });
+    saveJobsToDisk(); }
 
   const videoExts = ['.mp4', '.mkv', '.mov', '.webm', '.avi', '.flv', '.wmv', '.m4v', '.ts'];
         const ext = path.extname(tmpPath).toLowerCase();
@@ -226,90 +240,15 @@ export function registerUploadRoutes(app: express.Express) {
           return;
         }
 
-        if (!isClientReady()) {
-          try {
-            if (hasSavedSession()) {
-              await client.connect();
-              setClientReady(true);
-            }
-          } catch (e) {
-            console.warn('client connect failed, will use bot token if available');
-          }
-        }
+        // Enqueue the Telegram upload so uploads run sequentially
+        if (!hasJob(jobId)) return;
+        job.status = 'queued'; if (hasJob(jobId)) { jobs.set(jobId, job); sendSse(jobId, 'status', { status: job.status }); saveJobsToDisk(); }
+        enqueue(async () => {
+          if (isCancelled(jobId)) return;
+          await performTelegramUpload(job, tmpPath);
+        }, jobId);
 
-        const estUploadBps = Math.max(downloadBps, 50 * 1024);
-        const estUploadMs = Math.max(1000, Math.round((size / estUploadBps) * 1000));
-        let uploadTimer: NodeJS.Timeout | null = null;
-        let uploadStartTs = Date.now();
-        const startProgressEmitter = (method: string) => {
-          sendSse(jobId, 'uploadStart', { method });
-          uploadStartTs = Date.now();
-          let elapsed = 0;
-          uploadTimer = setInterval(() => {
-            elapsed = Date.now() - uploadStartTs;
-            const pct = Math.min(99, Math.round((elapsed / estUploadMs) * 100));
-            throttledProgress(jobId, 'upload', { percent: pct, elapsed });
-          }, 1200);
-        };
-        const stopProgressEmitter = () => { if (uploadTimer) { clearInterval(uploadTimer); uploadTimer = null; } };
-
-        if (isClientReady()) {
-          job.status = 'uploading'; jobs.set(jobId, job); sendSse(jobId, 'status', { status: job.status });
-          startProgressEmitter('user');
-          let attributes: any[] | undefined = undefined;
-          try {
-            const { execSync } = require('child_process');
-            const cmd = `ffprobe -v error -select_streams v:0 -show_entries stream=width,height,duration -of json "${tmpPath}"`;
-            const out = execSync(cmd, { encoding: 'utf8', stdio: ['ignore','pipe','ignore'] });
-            const parsed = JSON.parse(out);
-            const stream = (parsed.streams && parsed.streams[0]) || null;
-            if (stream) {
-              const duration = Math.round(Number(stream.duration || 0));
-              const w = Number(stream.width || 0);
-              const h = Number(stream.height || 0);
-              if (duration && w && h) {
-                attributes = [ new Api.DocumentAttributeVideo({ duration, w, h, supportsStreaming: true }) ];
-              }
-            }
-          } catch (probeErr: any) {
-            console.warn('ffprobe failed or not installed, sending without video attributes', probeErr && probeErr.message ? probeErr.message : String(probeErr));
-          }
-
-          if (attributes) {
-            await client.sendFile(TARGET_CHATID!, { file: tmpPath, attributes });
-          } else {
-            await client.sendFile(TARGET_CHATID!, { file: tmpPath });
-          }
-          stopProgressEmitter();
-          job.percent = 100; job.status = 'done'; jobs.set(jobId, job);
-          throttledProgress(jobId, 'upload', { percent: 100 });
-          sendSse(jobId, 'uploadComplete', { method: 'user' });
-          saveJobsToDisk();
-        } else {
-          job.status = 'error'; job.message = 'User client not connected and bot fallback disabled'; jobs.set(jobId, job);
-          sendSse(jobId, 'error', { message: job.message });
-          return;
-        }
-
-        try {
-          if (!saveToDl) {
-            try {
-              const DL_DIR = path.resolve('/var/www/dl');
-              const resolved = path.resolve(tmpPath);
-              const inside = resolved === DL_DIR || resolved.startsWith(DL_DIR + path.sep);
-              console.log(`CLEANUP job ${jobId}: tmpPath=${resolved}, insideDL=${inside}`);
-              if (!inside && fs.existsSync(resolved)) {
-                console.log(`CLEANUP job ${jobId}: unlinking ${resolved}`);
-                fs.unlinkSync(resolved);
-              } else {
-                console.log(`CLEANUP job ${jobId}: skipping unlink for ${resolved}`);
-              }
-            } catch (e) {}
-          }
-        } catch (e) {}
-        job.status = 'done'; job.percent = 100; jobs.set(jobId, job);
-        saveJobsToDisk();
-        sendSse(jobId, 'done', { success: true });
+        // Defer tmp cleanup to after upload completion is signalled (performTelegramUpload will set done)
       } catch (err) {
         try {
           if (!saveToDl) {
@@ -328,9 +267,11 @@ export function registerUploadRoutes(app: express.Express) {
           }
         } catch (e) {}
         console.error('Background upload error', err);
-        job.status = 'error'; job.message = String(err); jobs.set(jobId, job);
-        saveJobsToDisk();
-        sendSse(jobId, 'error', { message: String(err) });
+        if (hasJob(jobId)) {
+          job.status = 'error'; job.message = String(err); jobs.set(jobId, job);
+          saveJobsToDisk();
+          sendSse(jobId, 'error', { message: String(err) });
+        }
       }
     })();
   };
