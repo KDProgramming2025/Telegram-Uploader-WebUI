@@ -1,6 +1,7 @@
 {
   "name": "uploader-server",
   "version": "1.0.0",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

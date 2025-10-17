@@ -438,3 +438,14 @@ Project root: /var/www/uploader
 Web UI:       http://YOUR_SERVER_IP:11000
 Downloads:    /var/www/dl
 ```
+
+---
+
+## License
+
+This project is licensed under the PolyForm Noncommercial License 1.0.0.
+
+- Full text: https://polyformproject.org/licenses/noncommercial/1.0.0
+- See the `LICENSE` file in this repository for details.
+
+In short: You may use, modify, and share this software for noncommercial purposes. Commercial use is not permitted under this license.
