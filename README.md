@@ -26,6 +26,70 @@ Optional but useful:
 
 ---
 
+### 1.1) Install prerequisites (Linux)
+
+Below are quick ways to install Node.js 18+ (with npm) and FFmpeg (ffmpeg + ffprobe).
+
+- Recommended: use nvm for Node.js so you can pick a specific version and keep it isolated per user.
+- Alternatively: use your distro packages or the NodeSource repo.
+
+Verify prerequisites after installation:
+
+```bash
+node -v
+npm -v
+ffmpeg -version | head -n1
+ffprobe -version | head -n1
+```
+
+Ubuntu/Debian
+
+Option A: nvm (recommended)
+```bash
+curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+source ~/.nvm/nvm.sh
+nvm install 18
+```
+Then install FFmpeg:
+```bash
+sudo apt update
+sudo apt install -y ffmpeg
+```
+
+Option B: NodeSource + apt
+```bash
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt install -y nodejs
+sudo apt install -y ffmpeg
+```
+
+RHEL/CentOS/Alma/Rocky
+
+Option A: NodeSource + dnf/yum
+```bash
+curl -fsSL https://rpm.nodesource.com/setup_18.x | sudo bash -
+sudo dnf install -y nodejs || sudo yum install -y nodejs
+```
+FFmpeg (via RPM Fusion; enable then install):
+```bash
+sudo dnf install -y epel-release || sudo yum install -y epel-release
+# EL9: enable CRB; EL8: enable PowerTools
+sudo dnf config-manager --set-enabled crb || sudo yum config-manager --set-enabled powertools || true
+sudo dnf install -y https://download1.rpmfusion.org/free/el/rpmfusion-free-release-$(rpm -E %rhel).noarch.rpm || sudo yum install -y https://download1.rpmfusion.org/free/el/rpmfusion-free-release-$(rpm -E %rhel).noarch.rpm
+sudo dnf install -y ffmpeg || sudo yum install -y ffmpeg
+```
+
+Arch/Manjaro
+```bash
+sudo pacman -Syu --noconfirm nodejs npm ffmpeg
+```
+
+Notes
+- systemd is included by default on these distros; you can confirm with `systemctl --version`.
+- If your distro packages provide Node < 18, prefer nvm or NodeSource to meet the 18+ requirement.
+
+---
+
 ## 2) Install
 
 Clone the repository and install the server dependencies.
