@@ -264,12 +264,12 @@ curl -X POST http://YOUR_SERVER_IP:11000/auth/start -H 'Content-Type: applicatio
 
 2) Verify using the code you received in Telegram. If you have 2FA password enabled, include it as well.
 
-# Without 2FA password
+#### Without 2FA password
 ```bash
 curl -X POST http://YOUR_SERVER_IP:11000/auth/verify -H 'Content-Type: application/json' -d '{"code":"12345"}'
 ```
 
-# With 2FA password
+#### With 2FA password
 ```bash
 curl -X POST http://YOUR_SERVER_IP:11000/auth/verify -H 'Content-Type: application/json' -d '{"code":"12345","password":"YOUR_2FA_PASSWORD"}'
 ```
