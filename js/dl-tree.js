@@ -70,6 +70,20 @@ export function initDownloadTree() {
       dot.className = 'conn-dot';
       connectorEl.appendChild(dot);
     }
+    // Helper to toggle a directory node expansion and persist state
+    const toggleNode = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!node.isDir || node._renaming) return;
+      node._expanded = !node._expanded;
+      const p = node.path;
+      if (p) {
+        if (node._expanded) expandedPaths.add(p);
+        else expandedPaths.delete(p);
+        saveExpandedPaths();
+      }
+      scheduleDlRender();
+    };
 
     let nameEl;
     if (node._renaming) {
@@ -97,6 +111,14 @@ export function initDownloadTree() {
       const nameSpan = document.createElement('span');
       nameSpan.className = 'name';
       nameSpan.textContent = node.name || '(root)';
+      // Clicking on the folder name toggles expand/collapse
+      nameSpan.setAttribute('role', 'button');
+      nameSpan.tabIndex = 0;
+      nameSpan.style.cursor = 'pointer';
+      nameSpan.addEventListener('click', toggleNode);
+      nameSpan.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') toggleNode(event);
+      });
       wrap.appendChild(nameSpan);
       nameEl = wrap;
     } else {
@@ -168,9 +190,36 @@ export function initDownloadTree() {
     if (node.isDir) iconName = node._expanded ? 'folder-open' : 'folder';
     iconSpan.setAttribute('data-lucide', iconName);
     icon.appendChild(iconSpan);
+    // Clicking on the folder icon toggles expand/collapse
+    if (node.isDir) {
+      icon.setAttribute('role', 'button');
+      icon.tabIndex = 0;
+      icon.style.cursor = 'pointer';
+      icon.addEventListener('click', toggleNode);
+      icon.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') toggleNode(e);
+      });
+    }
     row.appendChild(icon);
     row.appendChild(main);
     row.appendChild(actions);
+
+    // Clicking anywhere on the main area (name + meta) toggles for folders, except when clicking actions or inputs
+    if (node.isDir) {
+      main.setAttribute('role', 'button');
+      main.tabIndex = 0;
+      main.style.cursor = 'pointer';
+      const mainToggle = (e) => {
+        // Ignore clicks originating from action buttons or inputs
+        if (e.target && (e.target.closest && e.target.closest('.actions'))) return;
+        if (e.target && (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+        toggleNode(e);
+      };
+      main.addEventListener('click', mainToggle, { capture: true });
+      main.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') mainToggle(e);
+      });
+    }
 
     return row;
   }
