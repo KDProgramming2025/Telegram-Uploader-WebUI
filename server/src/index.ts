@@ -139,6 +139,6 @@ registerEventRoutes(app);
 registerAuthRoutes(app);
 registerUploadRoutes(app);
 
-app.listen(PORT, () => {
+app.listen(Number(PORT), '127.0.0.1', () => {
   console.log(`Server running on port ${PORT}`);
 });

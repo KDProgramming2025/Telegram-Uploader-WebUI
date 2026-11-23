@@ -13,6 +13,7 @@ export function initDownloadTree() {
   let _dlRenderScheduled = false;
   let pendingDelete = null;
   let pendingDeleteIsDir = false;
+  let draggedNode = null;
 
   function loadExpandedPaths() {
     try {
@@ -56,8 +57,52 @@ export function initDownloadTree() {
     row.className = 'dl-item depth-' + depth + (node.isDir ? ' dir' : ' file');
     row.dataset.path = node.path || '';
     row.classList.add('anim-enter');
+    row.draggable = !node._renaming;
     const hue = (depth * 52) % 360;
     row.style.setProperty('--conn-color', `hsl(${hue} 70% 70% / 0.68)`);
+
+    row.addEventListener('dragstart', (event) => {
+      if (event.target instanceof Element && event.target.closest('.actions, input')) {
+        event.preventDefault();
+        return;
+      }
+      draggedNode = { path: node.path, isDir: !!node.isDir };
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', node.path || '');
+      row.classList.add('dragging');
+    });
+    row.addEventListener('dragend', () => {
+      row.classList.remove('dragging');
+      document.querySelectorAll('.dl-item.drop-target').forEach((target) => target.classList.remove('drop-target'));
+      draggedNode = null;
+    });
+
+    if (node.isDir) {
+      row.addEventListener('dragover', (event) => {
+        if (!draggedNode || draggedNode.path === node.path || (draggedNode.isDir && node.path.startsWith(draggedNode.path + '/'))) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        row.classList.add('drop-target');
+      });
+      row.addEventListener('dragleave', (event) => {
+        if (!row.contains(event.relatedTarget)) row.classList.remove('drop-target');
+      });
+      row.addEventListener('drop', async (event) => {
+        if (!draggedNode || draggedNode.path === node.path || (draggedNode.isDir && node.path.startsWith(draggedNode.path + '/'))) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const source = draggedNode;
+        draggedNode = null;
+        row.classList.remove('drop-target');
+        const name = source.path.split('/').pop();
+        const newPath = `${node.path}/${name}`;
+        if (newPath === source.path) return;
+        node._expanded = true;
+        expandedPaths.add(node.path);
+        saveExpandedPaths();
+        await renamePath(source.path, newPath, 'Moved successfully');
+      });
+    }
 
     const main = document.createElement('div');
     main.className = 'dl-item-main';
@@ -466,12 +511,12 @@ export function initDownloadTree() {
     const newPath = relPath.replace(/[^/]+$/, trimmed);
     delete node._renaming;
     node.name = trimmed;
-    renamePath(relPath, newPath, !!node.isDir);
+    renamePath(relPath, newPath);
   }
 
-  async function renamePath(oldPath, newPath) {
+  async function renamePath(oldPath, newPath, successMessage = 'Renamed successfully') {
     const form = document.getElementById('uploadForm');
-    if (!form) return;
+    if (!form) return false;
     const username = form.username.value;
     const password = form.password.value;
     try {
@@ -487,16 +532,17 @@ export function initDownloadTree() {
           body: JSON.stringify({ username, password, oldPath, newPath })
         });
         if (res2.ok) {
-          toast('Renamed successfully', 'success');
+          toast(successMessage, 'success');
           dlTreeCache = null;
           scheduleDlRender();
-          return;
+          return true;
         }
       }
       if (res.ok) {
-        toast('Renamed successfully', 'success');
+        toast(successMessage, 'success');
         dlTreeCache = null;
         scheduleDlRender();
+        return true;
       } else if (res.status === 401) {
         toast('Unauthorized: check username/password', 'error');
       } else if (res.status === 404) {
@@ -509,6 +555,7 @@ export function initDownloadTree() {
     } catch (_) {
       toast('Rename failed', 'error');
     }
+    return false;
   }
 
   function savePagerState() {

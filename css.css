@@ -238,6 +238,9 @@ body{margin:0;background:transparent;color:var(--text);-webkit-font-smoothing:an
 .files-list.win-tree .dl-item *{user-select:none;-webkit-user-select:none}
 .files-list.win-tree .dl-item a.name, .files-list.win-tree .dl-item .rename-input{user-select:text;-webkit-user-select:text}
 .files-list.win-tree .dl-item:hover{cursor:default}
+.files-list.win-tree .dl-item[draggable="true"]{cursor:grab}
+.files-list.win-tree .dl-item.dragging{opacity:.42;cursor:grabbing}
+.files-list.win-tree .dl-item.dir.drop-target{background:rgba(100,170,235,.16);outline:1px solid var(--accent-1);outline-offset:-1px}
 .files-list.win-tree .dl-item a.name{cursor:pointer}
 .files-list.win-tree .dl-item .rename-input{cursor:text;user-select:text;-webkit-user-select:text}
 .files-list.win-tree{position:relative;--guide:#1e2936}
